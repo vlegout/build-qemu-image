@@ -1,0 +1,1 @@
+A small script to generate a ready to use VM based on Debian unstable.
