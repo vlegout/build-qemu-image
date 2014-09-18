@@ -1,3 +1,11 @@
 
 .*.swp
 *~
+
+*.raw
+
+/config-*
+/initrd.img-*
+/vmlinuz-*
+
+/tmp
