@@ -1,14 +1,14 @@
 #!/bin/bash
 
-IMG=dd.raw
+IMG=ubuntu.raw
 SIZE=20240
 
 TMPDIR=tmp
 ARCH=amd64
-KERNEL=3.13.0-24-generic
+KERNEL=3.2.0-23-virtual
 KERNEL_CHRONOS=3.0.31-chronos+
 
-DISTRIBUTION=trusty
+DISTRIBUTION=precise
 MIRROR=http://ftp.ubuntu.com/ubuntu
 
 
@@ -17,7 +17,7 @@ if [ `id -u` -ne 0 ]; then
     exit 1
 fi
 
-# dd if=/dev/zero of=$IMG bs=1M count=$SIZE
+dd if=/dev/zero of=$IMG bs=1M count=$SIZE
 mke2fs -F $IMG
 
 if [ ! -d ${TMPDIR} ]
@@ -55,8 +55,10 @@ exit
 EOF
 
 cat > $TMPDIR/root/kernel.sh <<EOF
-apt-get build-dep linux
-apt-get install git
+#!/bin/sh
+
+apt-get -q -y build-dep linux
+apt-get -q -y install git
 
 cd /root
 
@@ -67,9 +69,10 @@ cp /root/config-3.0.24-chronos .config
 yes "" | make oldconfig
 ./kinst.sh
 
-sed -i 's/GRUB_DEFAULT=0/GRUB_DEFAULT="1>1"/' grub
+sed -i 's/GRUB_DEFAULT=0/GRUB_DEFAULT="1>1"/' /etc/default/grub
 update-grub2
 
+exit
 EOF
 
 cat > $TMPDIR/root/userspace.sh <<EOF
@@ -93,8 +96,12 @@ iface eth0 inet dhcp
 EOF
 
 chmod +x $TMPDIR/root/chroot.sh
+chmod +x $TMPDIR/root/kernel.sh
+chmod +x $TMPDIR/root/userspace.sh
 
 chroot $TMPDIR /bin/sh ./root/chroot.sh
+
+cp config-3.0.24-chronos $TMPDIR/root/
 
 cp $TMPDIR/boot/initrd.img-$KERNEL .
 cp $TMPDIR/boot/vmlinuz-$KERNEL .
@@ -116,7 +123,8 @@ qemu-system-x86_64 \
         -hda $IMG \
         -initrd initrd.img-$KERNEL \
         -kernel vmlinuz-$KERNEL \
-        -append "root=/dev/sda"
+        -append "root=/dev/sda" \
+        -curses
 
 # qemu-system-x86_64 \
 #         --enable-kvm \
@@ -125,4 +133,5 @@ qemu-system-x86_64 \
 #         -hda $IMG \
 #         -initrd initrd.img-$KERNEL_CHRONOS \
 #         -kernel vmlinuz-$KERNEL_CHRONOS \
-#         -append "root=/dev/sda"
+#         -append "root=/dev/sda" \
+#         -curses
