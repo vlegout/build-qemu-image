@@ -1,38 +1,15 @@
 #!/bin/bash
 
-# A small script to generate a ready to use VM based on Debian
-# unstable.
-
-# Copyright (C) 2014 Vincent Legout <vincent@legout.info>
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-
-
-IMG=unstable.raw
-SIZE=1024
+IMG=dd.raw
+SIZE=20240
 
 TMPDIR=tmp
 ARCH=amd64
-KERNEL=3.14-1-$ARCH
+KERNEL=3.13.0-24-generic
+KERNEL_CHRONOS=3.0.31-chronos+
 
-DISTRIBUTION=unstable
-MIRROR=http://ftp.us.debian.org/debian
+DISTRIBUTION=trusty
+MIRROR=http://ftp.ubuntu.com/ubuntu
 
 
 if [ `id -u` -ne 0 ]; then
@@ -40,12 +17,17 @@ if [ `id -u` -ne 0 ]; then
     exit 1
 fi
 
-dd if=/dev/zero of=$IMG bs=1M count=$SIZE
+# dd if=/dev/zero of=$IMG bs=1M count=$SIZE
 mke2fs -F $IMG
 
-mkdir $TMPDIR
+if [ ! -d ${TMPDIR} ]
+then
+    mkdir $TMPDIR
+fi
+
 mount $IMG $TMPDIR -o loop
-debootstrap --verbose $DISTRIBUTION $TMPDIR $MIRROR
+
+/usr/sbin/debootstrap --verbose $DISTRIBUTION $TMPDIR $MIRROR
 
 cat > $TMPDIR/root/chroot.sh <<EOF
 #!/bin/sh
@@ -57,19 +39,49 @@ mount proc /proc -t proc
 mount sysfs /sys -t sysfs
 mount devpts /dev/pts -t devpts
 
-echo "deb $MIRROR testing main" >> /etc/apt/sources.list
+echo "deb-src http://ftp.ubuntu.com/ubuntu $DISTRIBUTION main" >> /etc/apt/sources.list
 
 apt-get -q -y update
-apt-get -q -y install linux-image-$ARCH
+apt-get -q -y install linux-image-extra-$KERNEL
 
 rm -f /etc/hostname
-echo debian > /etc/hostname
+echo kairos > /etc/hostname
 
 umount /proc
 umount /sys
 umount /dev/pts
 
 exit
+EOF
+
+cat > $TMPDIR/root/kernel.sh <<EOF
+apt-get build-dep linux
+apt-get install git
+
+cd /root
+
+git clone git://git.chronoslinux.org/kernel.git
+
+cd /root/kernel
+cp /root/config-3.0.24-chronos .config
+yes "" | make oldconfig
+./kinst.sh
+
+sed -i 's/GRUB_DEFAULT=0/GRUB_DEFAULT="1>1"/' grub
+update-grub2
+
+EOF
+
+cat > $TMPDIR/root/userspace.sh <<EOF
+git clone ssh://git@git.chronoslinux.org/userspace.git
+
+cd /root/userspace/libchronos
+make
+make install
+
+cd /root/userspace/sched_test_app
+make
+make install
 EOF
 
 cat > $TMPDIR/etc/network/interfaces <<EOF
@@ -93,13 +105,24 @@ umount $TMPDIR
 
 rmdir $TMPDIR
 
+exit 0
+
 # Then launch QEMU, e.g.:
+
+qemu-system-x86_64 \
+        --enable-kvm \
+        -m 1G \
+        -smp 2 \
+        -hda $IMG \
+        -initrd initrd.img-$KERNEL \
+        -kernel vmlinuz-$KERNEL \
+        -append "root=/dev/sda"
 
 # qemu-system-x86_64 \
 #         --enable-kvm \
 #         -m 1G \
 #         -smp 2 \
 #         -hda $IMG \
-#         -initrd initrd.img-$KERNEL \
-#         -kernel vmlinuz-$KERNEL \
+#         -initrd initrd.img-$KERNEL_CHRONOS \
+#         -kernel vmlinuz-$KERNEL_CHRONOS \
 #         -append "root=/dev/sda"
